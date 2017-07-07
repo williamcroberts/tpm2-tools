@@ -45,6 +45,8 @@
 #include "password_util.h"
 #include "string-bytes.h"
 
+bool INPUT_SESSION_HANDLE = false;
+
 typedef struct tpm_rsadecrypt_ctx tpm_rsadecrypt_ctx;
 struct tpm_rsadecrypt_ctx {
     TPMI_DH_OBJECT key_handle;
@@ -90,7 +92,7 @@ static bool rsa_decrypt_and_save(tpm_rsadecrypt_ctx *ctx) {
 
 static bool init(int argc, char *argv[], tpm_rsadecrypt_ctx *ctx) {
 
-    const char *optstring = "k:P:I:o:c:X";
+    const char *optstring = "k:P:I:o:c:XY";
     static struct option long_options[] = {
       { "keyHandle",   required_argument, NULL, 'k'},
       { "pwdk",        required_argument, NULL, 'P'},
@@ -98,6 +100,7 @@ static bool init(int argc, char *argv[], tpm_rsadecrypt_ctx *ctx) {
       { "outFile",     required_argument, NULL, 'o'},
       { "keyContext",  required_argument, NULL, 'c'},
       { "passwdInHex", no_argument,       NULL, 'X'},
+      { "inputsession", no_argument,       NULL, 'Y'},
       { NULL,          no_argument,       NULL, '\0'}
     };
 
@@ -169,6 +172,10 @@ static bool init(int argc, char *argv[], tpm_rsadecrypt_ctx *ctx) {
         case 'X':
             is_hex_passwd = true;
             break;
+        case 'Y':
+            printf("INPUT_SESSION_HANDLE\n");
+            INPUT_SESSION_HANDLE = true;
+            break;
         case ':':
             LOG_ERR("Argument %c needs a value!\n", optopt);
             return false;
@@ -211,7 +218,11 @@ ENTRY_POINT(rsadecrypt) {
             .sapi_context = sapi_context
     };
 
-    ctx.session_data.sessionHandle = TPM_RS_PW;
+    if(INPUT_SESSION_HANDLE) {
+        ctx.session_data.sessionHandle = 0x3000000;
+    } else {
+        ctx.session_data.sessionHandle = TPM_RS_PW;
+    }
 
     bool result = init(argc, argv, &ctx);
     if (!result) {

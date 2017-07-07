@@ -50,6 +50,8 @@ static TSS2_SYS_CONTEXT *sysContext;
 static TPMS_AUTH_COMMAND sessionData;
 static bool hexPasswd = false;
 
+static bool E_Flag = false;
+
 static int setAlg(TPMI_ALG_PUBLIC type,TPMI_ALG_HASH nameAlg,TPM2B_PUBLIC *inPublic, int I_flag)
 {
     switch(nameAlg)
@@ -70,7 +72,7 @@ static int setAlg(TPMI_ALG_PUBLIC type,TPMI_ALG_HASH nameAlg,TPM2B_PUBLIC *inPub
     // First clear attributes bit field.
     *(UINT32 *)&(inPublic->t.publicArea.objectAttributes) = 0;
     inPublic->t.publicArea.objectAttributes.restricted = 0;
-    inPublic->t.publicArea.objectAttributes.userWithAuth = 1;
+    inPublic->t.publicArea.objectAttributes.userWithAuth = !E_Flag;
     inPublic->t.publicArea.objectAttributes.decrypt = 1;
     inPublic->t.publicArea.objectAttributes.sign = 1;
     inPublic->t.publicArea.objectAttributes.fixedTPM = 1;
@@ -357,6 +359,7 @@ ENTRY_POINT(create) {
                 break;
             }
             L_flag = 1;
+            E_Flag = true;
             break;
         case 'o':
             snprintf(opuFilePath, sizeof(opuFilePath), "%s", optarg);

@@ -46,6 +46,8 @@
 #include "tpm_hash.h"
 #include "pcr.h"
 
+bool REAL_SESSION = false;
+
 typedef struct createpolicypcr_ctx createpolicypcr_ctx;
 struct createpolicypcr_ctx {
     //common policy options
@@ -169,10 +171,18 @@ TPM_RC build_policy(createpolicypcr_ctx *ctx,
     TPM2B_NONCE nonceCaller = { { 0, } };
     nonceCaller.t.size = 0;
 
-    // Start policy session.
-    TPM_RC rval = tpm_session_start_auth_with_params(ctx->sapi_context,
+    // Start policy session: TPM_SE_POLICY or TPM_SE_TRIAL
+    TPM_RC rval = 0;
+    if (!REAL_SESSION) {
+        rval = tpm_session_start_auth_with_params(ctx->sapi_context,
             &ctx->policy_session, TPM_RH_NULL, 0, TPM_RH_NULL, 0, &nonceCaller,
-            &encryptedSalt, TPM_SE_TRIAL, &symmetric, TPM_ALG_SHA256);
+            &encryptedSalt, TPM_SE_TRIAL, &symmetric, TPM_ALG_SHA256);        
+    } else {
+        printf("HERE\n");
+        rval = tpm_session_start_auth_with_params(ctx->sapi_context,
+            &ctx->policy_session, TPM_RH_NULL, 0, TPM_RH_NULL, 0, &nonceCaller,
+            &encryptedSalt, TPM_SE_POLICY, &symmetric, TPM_ALG_SHA256);  
+    }
 
     if (rval != TPM_RC_SUCCESS) {
         LOG_ERR("Failed tpm session start auth with params\n");
@@ -186,7 +196,6 @@ TPM_RC build_policy(createpolicypcr_ctx *ctx,
         return rval;
     }
 
-    // Get policy hash.
     rval = Tss2_Sys_PolicyGetDigest(ctx->sapi_context,
             ctx->policy_session->sessionHandle, 0, &ctx->policy_digest, 0);
     if (rval != TPM_RC_SUCCESS) {
@@ -194,40 +203,58 @@ TPM_RC build_policy(createpolicypcr_ctx *ctx,
         return rval;
     }
 
-    LOG_INFO("Created Policy Digest:\n");
+    printf("Policy Digest: ");
+    int i=0;
+    for(i=0; i<ctx->policy_digest.t.size; i++) {
+        printf("%02X", ctx->policy_digest.t.buffer[i] );
+    }
+    printf("\n");
+    
 
-    //save the policy buffer in a file for use later or print hex to stdout.
-    if (ctx->policy_file_flag) {
-        bool result = files_save_bytes_to_file(ctx->policyfile, (UINT8 *) &ctx->policy_digest.t.buffer,
-                ctx->policy_digest.t.size);
-        if (!result) {
-            LOG_ERR("Failed to save policy digest into file \"%s\"",
-                    ctx->policyfile);
-            return -1;
+    if(!REAL_SESSION) {
+        printf("TRIAL SESSION:\n");
+        // Get policy hash.    
+        LOG_INFO("Created Policy Digest:\n");
+    
+        //save the policy buffer in a file for use later or print hex to stdout.
+        if (ctx->policy_file_flag) {
+            bool result = files_save_bytes_to_file(ctx->policyfile, (UINT8 *) &ctx->policy_digest.t.buffer,
+                    ctx->policy_digest.t.size);
+            if (!result) {
+                LOG_ERR("Failed to save policy digest into file \"%s\"",
+                        ctx->policyfile);
+                return -1;
+            }
+        } else {
+    
+            char *s = string_bytes_to_hex(ctx->policy_digest.t.buffer, ctx->policy_digest.t.size);
+            if (!s) {
+                LOG_ERR("oom");
+                return TPM_RC_MEMORY;
+            }
+    
+            TOOL_OUTPUT(ctx->t, "policy", s);
+    
+            free(s);
         }
+    
+        // Need to flush the session here.
+        rval = Tss2_Sys_FlushContext(ctx->sapi_context,
+                ctx->policy_session->sessionHandle);
+        if (rval != TPM_RC_SUCCESS) {
+            LOG_ERR("Failed Flush Context\n");
+            return rval;
+        }
+    
+        // And remove the session from sessions table.
+        return tpm_session_auth_end(ctx->policy_session);
     } else {
-
-        char *s = string_bytes_to_hex(ctx->policy_digest.t.buffer, ctx->policy_digest.t.size);
-        if (!s) {
-            LOG_ERR("oom");
-            return TPM_RC_MEMORY;
-        }
-
-        TOOL_OUTPUT(ctx->t, "policy", s);
-
-        free(s);
+        char *sh = malloc(2*sizeof(ctx->policy_session->sessionHandle));
+        sprintf(sh, "%x", ctx->policy_session->sessionHandle);
+        TOOL_OUTPUT(ctx->t, "sessionHandle", sh);
+        free(sh);
     }
-
-    // Need to flush the session here.
-    rval = Tss2_Sys_FlushContext(ctx->sapi_context,
-            ctx->policy_session->sessionHandle);
-    if (rval != TPM_RC_SUCCESS) {
-        LOG_ERR("Failed Flush Context\n");
-        return rval;
-    }
-
-    // And remove the session from sessions table.
-    return tpm_session_auth_end(ctx->policy_session);
+    return rval;
 }
 
 bool parse_policy_type(createpolicypcr_ctx *ctx, char *argv[]) {
@@ -270,6 +297,12 @@ bool parse_policy_type(createpolicypcr_ctx *ctx, char *argv[]) {
     return true;
 }
 
+
+TPMI_DH_OBJECT key_handle;
+TPM2B_PUBLIC_KEY_RSA cipher_text;
+    bool c_flag=false;    
+
+
 static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
 
     struct option sOpts[] = { 
@@ -277,7 +310,10 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
         { "policy-pcr",     no_argument,        NULL,  'P' }, 
         { "pcr-index",      required_argument,  NULL,   'i' }, 
         { "pcr-alg",        required_argument,  NULL,   'g' }, 
-        { "pcr-input-file", required_argument,  NULL,   'F' }, 
+        { "pcr-input-file", required_argument,  NULL,   'F' },
+        { "context-key-file", required_argument,  NULL,   'c' },
+        { "input-enc-file", required_argument,  NULL,   'I' },
+        { "real-session",     no_argument,        NULL,  'r' },  
         { NULL,             no_argument,        NULL,   '\0'}, 
     };
 
@@ -295,7 +331,8 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
     bool result;
 
     optind = 0;
-    while ((opt = getopt_long(argc, argv, "Pf:i:g:F:", sOpts, NULL)) != -1) {
+    char context_key_file[PATH_MAX];
+    while ((opt = getopt_long(argc, argv, "Pf:i:g:F:c:I:r", sOpts, NULL)) != -1) {
         switch (opt) {
         case 'f':
             ctx->policy_file_flag = true;
@@ -322,6 +359,21 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
                 return false;
             }
             break;
+        case 'r':
+            REAL_SESSION=true;
+            printf("REAL_SESSION\n");
+            break;
+        case 'c':
+            snprintf(context_key_file, sizeof(context_key_file), "%s", optarg);
+            c_flag=true;
+            break;
+        case 'I': 
+            cipher_text.t.size = sizeof(cipher_text) - 2;
+            result = files_load_bytes_from_file(optarg, cipher_text.t.buffer,
+                    &cipher_text.t.size);
+            if (!result) {
+                return false;
+            }
         case ':':
             LOG_ERR("Argument %c needs a value!\n", optopt);
             return false;
@@ -334,8 +386,50 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
         }
     }
 
+    if(c_flag) {
+        file_load_tpm_context_from_file(ctx->sapi_context, &key_handle, context_key_file);
+    } else {
+        key_handle = 0x81010002;
+    }
+
     return true;
 }
+
+static bool rsa_decrypt_and_save(createpolicypcr_ctx *ctx) {
+
+    TPMT_RSA_DECRYPT inScheme;
+    TPM2B_DATA label;
+    TPM2B_PUBLIC_KEY_RSA message = TPM2B_TYPE_INIT(TPM2B_PUBLIC_KEY_RSA, buffer);
+
+    TPMS_AUTH_COMMAND session_data;
+    TSS2_SYS_CMD_AUTHS sessions_data;
+    TPMS_AUTH_RESPONSE session_data_out;
+    TSS2_SYS_RSP_AUTHS sessions_data_out;
+    TPMS_AUTH_COMMAND *session_data_array[1];
+    TPMS_AUTH_RESPONSE *session_data_out_array[1];
+
+    session_data_array[0] = &session_data;
+    sessions_data.cmdAuths = &session_data_array[0];
+    session_data_out_array[0] = &session_data_out;
+    sessions_data_out.rspAuths = &session_data_out_array[0];
+    sessions_data_out.rspAuthsCount = 1;
+    sessions_data.cmdAuthsCount = 1;
+
+    inScheme.scheme = TPM_ALG_RSAES;
+    label.t.size = 0;
+
+    TPM_RC rval = Tss2_Sys_RSA_Decrypt(ctx->sapi_context, key_handle,
+            &sessions_data, &cipher_text, &inScheme, &label, &message,
+            &sessions_data_out);
+    if (rval != TPM_RC_SUCCESS) {
+        LOG_ERR("rsaDecrypt failed, error code: 0x%x", rval);
+        return false;
+    }
+
+    return files_save_bytes_to_file("output.bin", message.t.buffer,
+            message.t.size);
+}
+
 
 ENTRY_POINT(createpolicy) {
 
@@ -365,6 +459,10 @@ ENTRY_POINT(createpolicy) {
     result = parse_policy_type(&ctx, argv);
     if (!result) {
         return 1;
+    }
+
+    if(REAL_SESSION && c_flag) {
+        rsa_decrypt_and_save(&ctx);
     }
 
     /* true is success, coerce to 0 for program success */
