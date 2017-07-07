@@ -54,6 +54,7 @@ struct tpm_rsadecrypt_ctx {
     TPM2B_PUBLIC_KEY_RSA cipher_text;
     char output_file_path[PATH_MAX];
     TSS2_SYS_CONTEXT *sapi_context;
+//    SESSION *policy_session;
 };
 
 static bool rsa_decrypt_and_save(tpm_rsadecrypt_ctx *ctx) {
@@ -218,15 +219,15 @@ ENTRY_POINT(rsadecrypt) {
             .sapi_context = sapi_context
     };
 
-    if(INPUT_SESSION_HANDLE) {
-        ctx.session_data.sessionHandle = 0x3000000;
-    } else {
         ctx.session_data.sessionHandle = TPM_RS_PW;
-    }
 
     bool result = init(argc, argv, &ctx);
     if (!result) {
         return 1;
+    }
+
+    if (INPUT_SESSION_HANDLE) {
+        ctx.session_data.sessionHandle = 0x3000000;
     }
 
     return rsa_decrypt_and_save(&ctx) != true;

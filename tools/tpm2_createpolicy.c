@@ -311,7 +311,7 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
         { "pcr-index",      required_argument,  NULL,   'i' }, 
         { "pcr-alg",        required_argument,  NULL,   'g' }, 
         { "pcr-input-file", required_argument,  NULL,   'F' },
-        { "context-key-file", required_argument,  NULL,   'c' },
+        { "context-key-file", required_argument,  NULL,   'C' },
         { "input-enc-file", required_argument,  NULL,   'I' },
         { "real-session",     no_argument,        NULL,  'r' },  
         { NULL,             no_argument,        NULL,   '\0'}, 
@@ -332,7 +332,7 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
 
     optind = 0;
     char context_key_file[PATH_MAX];
-    while ((opt = getopt_long(argc, argv, "Pf:i:g:F:c:I:r", sOpts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "Pf:i:g:F:C:I:r", sOpts, NULL)) != -1) {
         switch (opt) {
         case 'f':
             ctx->policy_file_flag = true;
@@ -359,11 +359,7 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
                 return false;
             }
             break;
-        case 'r':
-            REAL_SESSION=true;
-            printf("REAL_SESSION\n");
-            break;
-        case 'c':
+        case 'C':
             snprintf(context_key_file, sizeof(context_key_file), "%s", optarg);
             c_flag=true;
             break;
@@ -374,6 +370,10 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
             if (!result) {
                 return false;
             }
+        case 'r':
+            REAL_SESSION=true;
+            printf("REAL_SESSION\n");
+            break;
         case ':':
             LOG_ERR("Argument %c needs a value!\n", optopt);
             return false;
