@@ -60,7 +60,6 @@ struct createpolicypcr_ctx {
     char *raw_pcr_file;
     struct {
         bool policy_type_pcr_flag;
-        bool raw_pcr_flag;
         bool pcr_index_flag;
     } pcr_flags;
     tpm_table *t;
@@ -78,7 +77,7 @@ TPM_RC build_pcr_policy(createpolicypcr_ctx *ctx) {
     
     TPML_DIGEST pcr_values = { .count = pcrs.count };
     long filesize = 0;
-    if (ctx->pcr_flags.raw_pcr_flag) {
+    if (ctx->raw_pcr_file) {
         bool result = files_get_file_size(ctx->raw_pcr_file, &filesize);
         if (!result) {
             return 1;
@@ -178,7 +177,7 @@ TPM_RC build_policy(createpolicypcr_ctx *ctx,
     }
 
     // Send policy command.
-    rval = (*build_policy_function)(ctx);
+    rval = build_policy_function(ctx);
     if (rval != TPM_RC_SUCCESS) {
         LOG_ERR("Failed build_policy_function\n");
         return rval;
@@ -228,40 +227,36 @@ TPM_RC build_policy(createpolicypcr_ctx *ctx,
     return tpm_session_auth_end(ctx->policy_session);
 }
 
-bool parse_policy_type(createpolicypcr_ctx *ctx, char *argv[]) {
+bool parse_policy_type(createpolicypcr_ctx *ctx) {
 
     if (ctx->pcr_flags.policy_type_pcr_flag) {
-        if (!ctx->policyfile || !ctx->pcr_flags.pcr_index_flag) {
-            showArgMismatch(argv[0]);
+        // pcr_index is unsigned... never can be less than 0
+        TPM_RC rval = get_max_supported_pcrs(ctx->sapi_context,
+            &ctx->max_supported_pcrs);
+        if(rval != TPM_RC_SUCCESS) {
+            LOG_ERR("Failure to read the capability data from TPM.\n");
             return false;
-        } else {
-            // pcr_index is unsigned... never can be less than 0
-            TPM_RC rval = get_max_supported_pcrs(ctx->sapi_context,
-                &ctx->max_supported_pcrs);
-            if(rval != TPM_RC_SUCCESS) {
-                LOG_ERR("Failure to read the capability data from TPM.\n");
-                return false;
-            }
-            if (!ctx->max_supported_pcrs) {
-                LOG_ERR("Failed to retrieve number of supported PCRs on the TPM\n");
-                return false;
-            }
+        }
+        if (!ctx->max_supported_pcrs) {
+            LOG_ERR("Failed to retrieve number of supported PCRs on the TPM\n");
+            return false;
+        }
 
-            if (ctx->pcr_index > (ctx->max_supported_pcrs - 1)) {
-                LOG_ERR("Invalid pcr_index %u. Choose between 0..%d\n",
-                        ctx->pcr_index, ctx->max_supported_pcrs);
-                return false;
-            }
+        if (ctx->pcr_index > (ctx->max_supported_pcrs - 1)) {
+            LOG_ERR("Invalid pcr_index %u. Choose between 0..%d\n",
+                    ctx->pcr_index, ctx->max_supported_pcrs);
+            return false;
+        }
 
-            LOG_INFO("Policy File = %s\n", ctx->policyfile);
-            LOG_INFO("PCR Index= %d\n", ctx->pcr_index);
-            rval = build_policy(ctx, build_pcr_policy);
-            if (rval != TPM_RC_SUCCESS) {
-                LOG_ERR("Failed build_policy\n");
-                return false;
-            }
+        LOG_INFO("Policy File = %s\n", ctx->policyfile);
+        LOG_INFO("PCR Index= %d\n", ctx->pcr_index);
+        rval = build_policy(ctx, build_pcr_policy);
+        if (rval != TPM_RC_SUCCESS) {
+            LOG_ERR("Failed build_policy\n");
+            return false;
         }
     }
+
     return true;
 }
 
@@ -281,10 +276,17 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
         return false;
     }
 
-    if (argc > (int) (2 * sizeof(sOpts) / sizeof(struct option))) {
-        showArgMismatch(argv[0]);
-        return false;
-    }
+    union {
+        struct {
+            UINT8 P : 1;
+            UINT8 i : 1;
+            UINT8 g : 1;
+            UINT8 unused : 5;
+        };
+        UINT8 all;
+    } flags = {
+        .all = 0
+    };
 
     int opt;
     bool result;
@@ -294,12 +296,15 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
             ctx->policyfile = optarg;
             break;
         case 'P':
+            flags.P = 1;
             ctx->pcr_flags.policy_type_pcr_flag = true;
             LOG_INFO("Policy type chosen is policyPCR.\n");
             break;
         case 'i':
+            flags.i = 1;
             ctx->pcr_flags.pcr_index_flag = true;
             if (tpm2_util_string_to_uint32(optarg, &ctx->pcr_index) != true) {
+                LOG_ERR("Invalid PCR index value, got: %s", optarg);
                 return false;
             }
             break;
@@ -307,8 +312,10 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
             ctx->raw_pcr_file = optarg;
             break;
         case 'g':
+            flags.g = 1;
             result = tpm2_util_string_to_uint16(optarg, &ctx->hash_alg);
             if (!result) {
+                LOG_ERR("Invalid hash algorithm, got: %s", optarg);
                 return false;
             }
             break;
@@ -322,6 +329,11 @@ static bool init(int argc, char *argv[], createpolicypcr_ctx *ctx) {
             LOG_ERR("?? getopt returned character code 0%o ??\n", opt);
             return false;
         }
+    }
+
+    if (!flags.P || !flags.i || !flags.g) {
+        showArgMismatch(argv[0]);
+        return false;
     }
 
     return true;
@@ -344,7 +356,6 @@ ENTRY_POINT(createpolicy) {
         .raw_pcr_file = NULL,
         .pcr_flags.policy_type_pcr_flag = false,
         .pcr_flags.pcr_index_flag = false,
-        .pcr_flags.raw_pcr_flag = false,
         .t = table
     };
 
@@ -353,7 +364,7 @@ ENTRY_POINT(createpolicy) {
         return 1;
     }
 
-    result = parse_policy_type(&ctx, argv);
+    result = parse_policy_type(&ctx);
     if (!result) {
         return 1;
     }
