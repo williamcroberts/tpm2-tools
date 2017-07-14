@@ -138,7 +138,8 @@ ENTRY_POINT(getrandom) {
             .output_file_specified = false,
             .num_of_bytes = 0,
             .output_file = NULL,
-            .sapi_context = sapi_context
+            .sapi_context = sapi_context,
+            .t = table
     };
 
     bool result = init(argc, argv, &ctx);
