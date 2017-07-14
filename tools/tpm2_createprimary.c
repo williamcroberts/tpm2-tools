@@ -58,7 +58,7 @@ static TPMS_AUTH_COMMAND sessionData = {
 static bool hexPasswd = false;
 static TPM_HANDLE handle2048rsa;
 
-int setAlg(TPMI_ALG_PUBLIC type,TPMI_ALG_HASH nameAlg,TPM2B_PUBLIC *inPublic, bool is_policy_enforced)
+static int setAlg(TPMI_ALG_PUBLIC type,TPMI_ALG_HASH nameAlg,TPM2B_PUBLIC *inPublic, bool is_policy_enforced)
 {
     switch(nameAlg)
     {
