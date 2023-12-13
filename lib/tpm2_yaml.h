@@ -11,9 +11,9 @@ tpm2_yaml *tpm2_yaml_new(int canonical);
 
 void tpm2_yaml_free(tpm2_yaml *y);
 
-tool_rc tpm2_yaml_tpm2b_name(const TPM2B_NAME *name, tpm2_yaml *y);
+tool_rc tpm2_yaml_tpm2b_digest(const TPM2B_DIGEST *data, tpm2_yaml *y);
 
-tool_rc tpm2_yaml_hex_string(const char *hex, tpm2_yaml *y);
+tool_rc tpm2_yaml_tpm2b_name(const TPM2B_NAME *name, tpm2_yaml *y);
 
 tool_rc tpm2_yaml_qualified_name(const TPM2B_NAME *qname, tpm2_yaml *y);
 

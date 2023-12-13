@@ -727,18 +727,21 @@ tool_rc tpm2_policy_tool_finish(ESYS_CONTEXT *ectx, tpm2_yaml *y, tpm2_session *
         return rc;
     }
 
-    char *h = tpm2_util_bin2hex(policy_digest->buffer, policy_digest->size);
-    if (!h) {
-        LOG_ERR("oom");
-        return tool_rc_general_error;
-    }
-    rc = tpm2_yaml_hex_string(h, y);
-    if (rc != tool_rc_success) {
-        LOG_ERR("Could not create yaml string");
-        free(h);
-        return rc;
-    }
-    free(h);
+    // TODO DO WE ALLOW SCALAR VALUES
+    rc = tpm2_yaml_tpm2b_digest(policy_digest, y);
+
+//    char *h = tpm2_util_bin2hex(policy_digest->buffer, policy_digest->size);
+//    if (!h) {
+//        LOG_ERR("oom");
+//        return tool_rc_general_error;
+//    }
+//    rc = tpm2_yaml_hex_string(h, y);
+//    if (rc != tool_rc_success) {
+//        LOG_ERR("Could not create yaml string");
+//        free(h);
+//        return rc;
+//    }
+//    free(h);
 
     rc = tool_rc_general_error;
 

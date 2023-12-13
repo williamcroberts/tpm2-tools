@@ -56,7 +56,7 @@ struct list {
         uint64_t as_int;
     } value;
     unsigned base;
-    const yaml_char_t *tag;
+    yaml_char_t *tag;
 };
 
 tpm2_yaml *tpm2_yaml_new(int canonical) {
@@ -325,7 +325,7 @@ static int tpms_time_info_to_yaml(tpm2_yaml *y, int root,
                                        clock_info, ARRAY_LEN(clock_info));
 }
 
-static tool_rc tpm2b_to_yaml(tpm2_yaml *y, int root, const char *key, const TPM2B_NAME *name) {
+static tool_rc tpm2b_to_yaml(tpm2_yaml *y, int root, const char *key, const TPM2B *name) {
 
     struct key_value key_bits = KVP_ADD_TPM2B(key, name);
     int rc = add_kvp(y, root, &key_bits);
@@ -338,11 +338,11 @@ tool_rc tpm2_yaml_tpm2b_name(const TPM2B_NAME *name, tpm2_yaml *y) {
     return tpm2b_to_yaml(y, y->root, "name", name);
 }
 
-tool_rc tpm2_yaml_hex_string(const char *hex, tpm2_yaml *y) {
+tool_rc tpm2_yaml_tpm2b_digest(const TPM2B_DIGEST *data, tpm2_yaml *y) {
     null_ret(y, 1);
-    assert(hex);
-    int rc = yaml_add_str(y, hex);
-    return rc ? tool_rc_success : tool_rc_general_error;
+    assert(data);
+    return tpm2b_to_yaml(y, y->root, "digest", data) ?
+            tool_rc_success : tool_rc_general_error;
 }
 
 tool_rc tpm2_yaml_qualified_name(const TPM2B_NAME *qname, tpm2_yaml *y) {
